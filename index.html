@@ -1,131 +1,196 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Mantra Counter</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      text-align: center;
-      padding: 20px;
-      background: #f5f5f5;
-    }
-    h1 { font-size: 26px; }
-    #count { font-size: 60px; color: green; }
-    button, input, select {
-      font-size: 16px;
-      padding: 10px;
-      margin: 5px;
-      width: 90%;
-      max-width: 300px;
-    }
-  </style>
+<meta charset="UTF-8">
+<title>🕉️ Mantra Mala Counter</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    text-align: center;
+    background: #f4f4f4;
+    padding: 15px;
+  }
+
+  h1 { margin-bottom: 5px; }
+
+  #count {
+    font-size: 48px;
+    color: green;
+    margin: 10px 0;
+  }
+
+  select, input, button {
+    padding: 10px;
+    font-size: 16px;
+    margin: 5px;
+    width: 90%;
+    max-width: 300px;
+  }
+
+  #beads {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 6px;
+    max-width: 360px;
+    margin: 20px auto;
+  }
+
+  .bead {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #ccc;
+  }
+
+  .bead.active {
+    background: orange;
+    box-shadow: 0 0 6px orange;
+  }
+
+  #status {
+    margin-top: 10px;
+    font-weight: bold;
+  }
+</style>
 </head>
 
 <body>
 
-<h1>🕉️ Mantra Chant Counter</h1>
+<h1>🕉️ Mantra Mala Counter</h1>
+<p>Ram Naam / Any Mantra</p>
 
 <div id="count">0</div>
 
-<select id="goal">
-  <option value="108">108</option>
+<select id="goalSelect">
+  <option value="108">108 (1 Mala)</option>
   <option value="1008">1008</option>
   <option value="custom">Custom</option>
 </select>
 
-<input type="number" id="customGoal" placeholder="Custom goal" style="display:none">
+<input type="number" id="customGoal" placeholder="Enter custom goal" style="display:none">
 
-<br>
-
-<button onclick="start()">▶ Start</button>
+<button onclick="start()">▶ Start Chanting</button>
 <button onclick="stop()">⏹ Stop</button>
-<button onclick="reset()">🔁 Reset Today</button>
+<button onclick="resetToday()">🔁 Reset Today</button>
 
-<p id="status"></p>
+<div id="beads"></div>
+
+<div id="status"></div>
+
+<!-- Shankh sound -->
+<audio id="shankh">
+  <source src="https://upload.wikimedia.org/wikipedia/commons/4/4f/Shankha_conch_sound.ogg" type="audio/ogg">
+</audio>
 
 <script>
 let audioContext, analyser, mic, dataArray;
-let counting = false;
-let lastCountTime = 0;
+let listening = false;
+let lastSoundTime = 0;
 
 const today = new Date().toISOString().split("T")[0];
-let store = JSON.parse(localStorage.getItem("mantra")) || {};
-if (!store[today]) store[today] = { count: 0, goal: 108 };
+let data = JSON.parse(localStorage.getItem("mantraData")) || {};
 
-document.getElementById("count").innerText = store[today].count;
+if (!data[today]) data[today] = { count: 0, goal: 108 };
 
-document.getElementById("goal").onchange = function () {
-  if (this.value === "custom") {
+const countEl = document.getElementById("count");
+const beadsEl = document.getElementById("beads");
+const statusEl = document.getElementById("status");
+const shankh = document.getElementById("shankh");
+
+countEl.innerText = data[today].count;
+
+// ---------------- BEADS ----------------
+function drawBeads() {
+  beadsEl.innerHTML = "";
+  let beadsToShow = Math.min(data[today].goal, 108);
+  for (let i = 0; i < beadsToShow; i++) {
+    const bead = document.createElement("div");
+    bead.className = "bead";
+    if (i < data[today].count % beadsToShow) bead.classList.add("active");
+    beadsEl.appendChild(bead);
+  }
+}
+
+drawBeads();
+
+// ---------------- GOAL ----------------
+goalSelect.onchange = () => {
+  if (goalSelect.value === "custom") {
     customGoal.style.display = "block";
     customGoal.onchange = () => {
-      store[today].goal = parseInt(customGoal.value);
+      data[today].goal = parseInt(customGoal.value);
       save();
+      drawBeads();
     };
   } else {
     customGoal.style.display = "none";
-    store[today].goal = parseInt(this.value);
+    data[today].goal = parseInt(goalSelect.value);
     save();
+    drawBeads();
   }
 };
 
-function save() {
-  localStorage.setItem("mantra", JSON.stringify(store));
-}
-
+// ---------------- AUDIO ----------------
 async function start() {
-  audioContext = new AudioContext();
+  audioContext = new (window.AudioContext || window.webkitAudioContext)();
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
   mic = audioContext.createMediaStreamSource(stream);
 
   analyser = audioContext.createAnalyser();
   analyser.fftSize = 512;
-
   mic.connect(analyser);
-  dataArray = new Uint8Array(analyser.frequencyBinCount);
 
-  counting = true;
-  detectSound();
-  document.getElementById("status").innerText = "Listening...";
+  dataArray = new Uint8Array(analyser.frequencyBinCount);
+  listening = true;
+  statusEl.innerText = "Listening...";
+  detect();
 }
 
-function detectSound() {
-  if (!counting) return;
+function detect() {
+  if (!listening) return;
 
   analyser.getByteFrequencyData(dataArray);
-
   let volume = dataArray.reduce((a, b) => a + b) / dataArray.length;
   let now = Date.now();
 
-  // 🔴 IMPORTANT THRESHOLD
-  if (volume > 40 && now - lastCountTime > 800) {
-    store[today].count++;
-    document.getElementById("count").innerText = store[today].count;
-    lastCountTime = now;
+  // 🔥 Adaptive fast chanting detection
+  if (volume > 30 && now - lastSoundTime > 300) {
+    data[today].count++;
+    lastSoundTime = now;
+    countEl.innerText = data[today].count;
     save();
+    drawBeads();
 
-    if (store[today].count >= store[today].goal) {
-      alert("🙏 Goal completed!");
+    if (data[today].count === data[today].goal) {
+      shankh.play();
+      alert("🙏 Goal Completed");
       stop();
       return;
     }
   }
 
-  requestAnimationFrame(detectSound);
+  requestAnimationFrame(detect);
 }
 
 function stop() {
-  counting = false;
+  listening = false;
   if (audioContext) audioContext.close();
-  document.getElementById("status").innerText = "Stopped";
+  statusEl.innerText = "Stopped";
 }
 
-function reset() {
+function resetToday() {
   if (confirm("Reset today's count?")) {
-    store[today].count = 0;
-    document.getElementById("count").innerText = 0;
+    data[today].count = 0;
+    countEl.innerText = 0;
     save();
+    drawBeads();
   }
+}
+
+function save() {
+  localStorage.setItem("mantraData", JSON.stringify(data));
 }
 </script>
 
