@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Mantra Counter</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    h1 { font-size: 26px; }
+    #count { font-size: 60px; color: green; }
+    button, input, select {
+      font-size: 16px;
+      padding: 10px;
+      margin: 5px;
+      width: 90%;
+      max-width: 300px;
+    }
+  </style>
+</head>
+
+<body>
+
+<h1>🕉️ Mantra Chant Counter</h1>
+
+<div id="count">0</div>
+
+<select id="goal">
+  <option value="108">108</option>
+  <option value="1008">1008</option>
+  <option value="custom">Custom</option>
+</select>
+
+<input type="number" id="customGoal" placeholder="Custom goal" style="display:none">
+
+<br>
+
+<button onclick="start()">▶ Start</button>
+<button onclick="stop()">⏹ Stop</button>
+<button onclick="reset()">🔁 Reset Today</button>
+
+<p id="status"></p>
+
+<script>
+let audioContext, analyser, mic, dataArray;
+let counting = false;
+let lastCountTime = 0;
+
+const today = new Date().toISOString().split("T")[0];
+let store = JSON.parse(localStorage.getItem("mantra")) || {};
+if (!store[today]) store[today] = { count: 0, goal: 108 };
+
+document.getElementById("count").innerText = store[today].count;
+
+document.getElementById("goal").onchange = function () {
+  if (this.value === "custom") {
+    customGoal.style.display = "block";
+    customGoal.onchange = () => {
+      store[today].goal = parseInt(customGoal.value);
+      save();
+    };
+  } else {
+    customGoal.style.display = "none";
+    store[today].goal = parseInt(this.value);
+    save();
+  }
+};
+
+function save() {
+  localStorage.setItem("mantra", JSON.stringify(store));
+}
+
+async function start() {
+  audioContext = new AudioContext();
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  mic = audioContext.createMediaStreamSource(stream);
+
+  analyser = audioContext.createAnalyser();
+  analyser.fftSize = 512;
+
+  mic.connect(analyser);
+  dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+  counting = true;
+  detectSound();
+  document.getElementById("status").innerText = "Listening...";
+}
+
+function detectSound() {
+  if (!counting) return;
+
+  analyser.getByteFrequencyData(dataArray);
+
+  let volume = dataArray.reduce((a, b) => a + b) / dataArray.length;
+  let now = Date.now();
+
+  // 🔴 IMPORTANT THRESHOLD
+  if (volume > 40 && now - lastCountTime > 800) {
+    store[today].count++;
+    document.getElementById("count").innerText = store[today].count;
+    lastCountTime = now;
+    save();
+
+    if (store[today].count >= store[today].goal) {
+      alert("🙏 Goal completed!");
+      stop();
+      return;
+    }
+  }
+
+  requestAnimationFrame(detectSound);
+}
+
+function stop() {
+  counting = false;
+  if (audioContext) audioContext.close();
+  document.getElementById("status").innerText = "Stopped";
+}
+
+function reset() {
+  if (confirm("Reset today's count?")) {
+    store[today].count = 0;
+    document.getElementById("count").innerText = 0;
+    save();
+  }
+}
+</script>
+
+</body>
+</html>
